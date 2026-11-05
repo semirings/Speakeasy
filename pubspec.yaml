@@ -1,0 +1,14 @@
+name: speakeasy
+description: A friendly, HyperTalk-inspired language and runtime. Early scaffold.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+executables:
+  speakeasy:
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.24.0

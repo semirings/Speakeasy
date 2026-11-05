@@ -1,0 +1,397 @@
+(* =============================================================================
+   HyperTalk 2.2 -- EBNF
+
+   Source: "Formal Syntax of HyperTalk Version 2.2", Jeanne A. E. DeVoto,
+   http://www.jaedworks.com/hypercard/scripts/hypertalk-bnf.html
+   This file restates that grammar in a regular notation. It is a reference
+   for Speakeasy, not the Speakeasy grammar itself: Speakeasy will be a subset
+   with its own decisions (see NOTES.md).
+
+   NOTATION
+     rule ::= body ;          every rule ends with ';'
+     'text'                   terminal; keywords are case-insensitive
+     ( )  |  ?  *  +          grouping, alternation, optional, repeat
+     [a-z]  [^"\r\n]          character class (lexical rules only)
+     comment brackets         as used on this very comment
+     lower-case rules         parser rules
+     UPPER-CASE rules         lexical rules and synonym classes
+
+   TAGS used in comments
+     ADDED        not in the source; needed for a usable grammar
+     FIXED        a defect in the source, corrected
+     NORMALIZED   the source was ambiguous or garbled; this is one reading
+     NOTE         context for the reader
+   Every tagged item is also listed in NOTES.md.
+   ============================================================================ *)
+
+
+(* ============================ 1. LEXICAL ================================== *)
+
+NL            ::= '\r\n' | '\r' | '\n' ;   (* <return>: ends a statement *)
+COMMENT       ::= '--' [^\r\n]* ;          (* ADDED: skipped by the lexer *)
+CONTINUATION  ::= '¬' NL ;                 (* ADDED: joins two lines *)
+
+STRING        ::= '"' [^"\r\n]* '"' ;
+NUMBER        ::= [0-9]+ ( '.' [0-9]* )? ( ( 'e' | 'E' ) ( '+' | '-' )? [0-9]+ )?
+                | '.' [0-9]+ ;
+IDENT         ::= [A-Za-z_] [A-Za-z0-9_]* ;
+UNQUOTED      ::= [^ \t\r\n,"()]+ ;        (* NOTE: HyperTalk allows unquoted tokens as strings *)
+LINE          ::= [^\r\n]* ;               (* <line>: rest of line, up to a comment *)
+
+(* Synonym classes. *)
+BKGND         ::= 'bkgnd' | 'bg' | 'background' ;
+BKGNDS        ::= 'bkgnds' | 'bgs' | 'backgrounds' ;
+BUTTON        ::= 'button' | 'btn' ;
+BUTTONS       ::= 'buttons' | 'btns' ;
+CARD          ::= 'card' | 'cd' ;
+CARDS         ::= 'cards' | 'cds' ;
+CHAR          ::= 'char' | 'character' ;
+CHARS         ::= 'chars' | 'characters' ;
+FIELD         ::= 'field' | 'fld' ;
+FIELDS        ::= 'fields' | 'flds' ;
+MSG           ::= 'msg' | 'message' ;
+PICTURE       ::= 'picture' | 'pict' ;
+PREV          ::= 'prev' | 'previous' ;
+GRAY          ::= 'gray' | 'grey' ;
+POLY          ::= 'poly' | 'polygon' ;
+REG           ::= 'reg' | 'regular' ;
+WORD          ::= 'word' ;
+WORDS         ::= 'words' ;
+ITEM          ::= 'item' ;
+ITEMS         ::= 'items' ;
+LINEKW        ::= 'line' ;
+LINES         ::= 'lines' ;
+
+
+(* ============================ 2. SCRIPTS ================================== *)
+
+script        ::= ( NL | handler )* ;
+
+handler       ::= 'on' messageKey paramList? NL stmntList 'end' messageKey NL
+                | 'function' IDENT paramList? NL stmntList 'end' IDENT NL ;
+                  (* ADDED: handler parameters and 'function' handlers; the
+                     source defines only parameterless 'on' handlers *)
+paramList     ::= IDENT ( ',' IDENT )* ;
+messageKey    ::= IDENT ;
+
+stmntList     ::= stmnt+ ;
+stmnt         ::= ( messageSend | keywordStmnt )? NL ;
+
+messageSend   ::= command
+                | IDENT ( expr ( ',' expr )* )? ;
+                  (* ADDED: <messageSend> is used but never defined in the source *)
+
+keywordStmnt  ::= 'do' expr
+                | 'exit' 'repeat'
+                | 'exit' 'to' 'HyperCard'
+                | 'exit' messageKey
+                | 'global' identList
+                | 'next' 'repeat'
+                | 'pass' messageKey
+                | 'return' expr
+                | 'send' expr ( 'to' ( object | 'window' expr | 'program' expr ) )?
+                  (* NORMALIZED: source brackets "to {object|window expr} | program expr" *)
+                | ifBlock
+                | repeatBlock ;
+identList     ::= IDENT ( ',' IDENT )* ;     (* ADDED: undefined in source *)
+
+ifBlock       ::= 'if' logical NL? 'then' ( singleThen | NL multiThen ) ;
+singleThen    ::= stmnt ( NL? elseBlock )? ;
+multiThen     ::= stmntList ( 'end' 'if' | elseBlock ) ;
+elseBlock     ::= 'else' ( stmnt | NL stmntList 'end' 'if' ) ;
+
+repeatBlock   ::= 'repeat' ( 'forever' | duration | count | 'with' IDENT '=' range )?
+                  NL stmntList 'end' 'repeat' ;
+duration      ::= 'until' logical | 'while' logical ;   (* FIXED: defined twice in source *)
+count         ::= 'for'? unsigned 'times'? ;
+range         ::= integer 'down'? 'to' integer ;
+
+
+(* =========================== 3. EXPRESSIONS =============================== *)
+
+(* HyperTalk is weakly typed, so the typed nonterminals of the source collapse
+   to expr; type errors are run-time errors. *)
+integer       ::= expr ;
+unsigned      ::= expr ;
+float         ::= expr ;
+logical       ::= expr ;
+arith         ::= expr ;
+arithList     ::= expr ( ',' expr )* ;
+exprOrLine    ::= expr | LINE ;
+
+(* ADDED: the source gives a flat operator list. This layering follows the
+   documented HyperTalk precedence, lowest first. Not checked against HyperCard. *)
+expr              ::= orExpr ;
+orExpr            ::= andExpr ( 'or' andExpr )* ;
+andExpr           ::= equalityExpr ( 'and' equalityExpr )* ;
+equalityExpr      ::= relationalExpr ( equalityOp relationalExpr )* ;
+equalityOp        ::= '=' | '<>' | '≠' | 'is' 'not'? ;
+                  (* NOTE: 'is [not] in|within|a|an' are relationalOp; they win by longest match *)
+relationalExpr    ::= concatExpr ( relationalOp concatExpr )* ;
+relationalOp      ::= '<' | '>' | '<=' | '>=' | '≤' | '≥' | 'contains'
+                    | 'is' 'not'? 'in'
+                    | 'is' 'not'? 'within'
+                    | 'is' 'not'? ( 'a' | 'an' ) ;
+concatExpr        ::= additiveExpr ( ( '&' | '&&' ) additiveExpr )* ;
+additiveExpr      ::= multiplicativeExpr ( ( '+' | '-' ) multiplicativeExpr )* ;
+multiplicativeExpr ::= powerExpr ( ( '*' | '/' | 'div' | 'mod' ) powerExpr )* ;
+powerExpr         ::= unaryExpr ( '^' unaryExpr )* ;
+unaryExpr         ::= '-' unaryExpr
+                    | 'not' unaryExpr
+                    | 'there' 'is' ( 'a' | 'an' | 'no' ) unaryExpr
+                    | primary ;
+
+primary           ::= chunk factor | factor ;
+                  (* FIXED: the source writes "<chunk> <expr>"; a chunk applies to the
+                     next factor, not to a whole expression *)
+
+factor            ::= '(' expr ')'
+                    | STRING
+                    | NUMBER
+                    | constant
+                    | function
+                    | propertyRef
+                    | simpleContainer
+                    | UNQUOTED ;           (* NOTE: variables resolve before this *)
+
+constant          ::= 'down' | 'empty' | 'false' | 'formFeed' | 'lineFeed' | 'pi'
+                    | 'quote' | 'space' | 'tab' | 'true' | 'up' | 'return'
+                    | 'zero' | 'one' | 'two' | 'three' | 'four' | 'five'
+                    | 'six' | 'seven' | 'eight' | 'nine' | 'ten' ;
+                  (* FIXED: 'return' missing from the source's constants *)
+
+adjective         ::= 'long' | 'short' | 'abbrev' | 'abbr' | 'abbreviated' ;
+
+propertyRef       ::= 'the'? adjective? PROPERTY 'of'
+                      ( object | window | menuItem 'of' menu | chunk field ) ;
+                  (* NORMALIZED: source omits 'the' *)
+
+function          ::= 'the' THEFUNC
+                    | 'the'? 'number' 'of' numberArg
+                    | 'the'? 'selectedButton' 'of'? ( CARD | BKGND )? 'family' factor
+                    | 'the'? THEFUNC 'of' factor
+                    | funcName '(' ( expr ( ',' expr )* )? ')' ;
+                  (* NOTE: 'of' takes a factor, '( )' takes expressions.
+                     ADDED: the optional 'of' before 'family' is a guess *)
+funcName          ::= IDENT | THEFUNC ;
+
+numberArg         ::= CARDS ( 'in' bkgnd )?
+                    | BKGNDS
+                    | ( CARD | BKGND )? ( BUTTONS | FIELDS | 'parts' )
+                    | ( CHARS | WORDS | ITEMS | LINES ) 'in' factor
+                    | object
+                    | 'menus'
+                    | 'menuItems' ( 'in' | 'of' ) menu
+                    | 'marked' CARDS
+                    | 'windows' ;
+
+THEFUNC           ::= 'abs' | 'annuity' | 'atan' | 'average' | 'charToNum'
+                    | 'clickChunk' | 'clickH' | 'clickLine' | 'clickLoc' | 'clickText'
+                    | 'clickV' | 'cmdKey' | 'commandKey' | 'compound' | 'cos' | 'date'
+                    | 'diskSpace' | 'exp' | 'exp1' | 'exp2' | 'foundChunk' | 'foundField'
+                    | 'foundLine' | 'foundText' | 'heapSpace' | 'length' | 'ln' | 'ln1'
+                    | 'log2' | 'max' | 'menus' | 'min' | 'mouse' | 'mouseClick' | 'mouseH'
+                    | 'mouseLoc' | 'mouseV' | 'number' | 'numToChar' | 'offset'
+                    | 'optionKey' | 'param' | 'paramCount' | 'params' | 'programs'
+                    | 'random' | 'result' | 'round' | 'screenRect' | 'seconds'
+                    | 'selectedButton' | 'selectedChunk' | 'selectedField'
+                    | 'selectedLine' | 'selectedLoc' | 'selectedText' | 'shiftKey'
+                    | 'sin' | 'sound' | 'sqrt' | 'stacks' | 'stackSpace' | 'sum'
+                    | 'systemVersion' | 'tan' | 'target' | 'ticks' | 'time' | 'tool'
+                    | 'trunc' | 'value' | 'windows' ;
+
+PROPERTY          ::= 'address' | 'autoHilite' | 'autoSelect' | 'autoTab'
+                    | 'blindTyping' | 'botRight' | 'bottom' | 'bottomRight' | 'brush'
+                    | 'cantAbort' | 'cantDelete' | 'cantModify' | 'cantPeek'
+                    | 'centered' | 'checkMark' | 'cmdChar' | 'commandChar' | 'cursor'
+                    | 'debugger' | 'dialingTime' | 'dialingVolume' | 'dontSearch'
+                    | 'dontWrap' | 'dragSpeed' | 'editBkgnd' | 'enabled' | 'environment'
+                    | 'family' | 'filled' | 'fixedLineHeight' | 'freeSize' | 'grid'
+                    | 'height' | 'highlight' | 'highlite' | 'hilight' | 'hilite'
+                    | 'icon' | 'id' | 'itemDelimiter' | 'language' | 'left'
+                    | 'lineSize' | 'loc' | 'location' | 'lockErrorDialogs'
+                    | 'lockMessages' | 'lockRecent' | 'lockScreen' | 'lockText'
+                    | 'longWindowTitles' | 'markChar' | 'marked' | 'menuMessage'
+                    | 'menuMsg' | 'messageWatcher' | 'multiple' | 'multipleLines'
+                    | 'multiSpace' | 'name' | 'numberFormat' | 'owner' | 'partNumber'
+                    | 'pattern' | 'polySides' | 'powerKeys' | 'printMargins'
+                    | 'printTextAlign' | 'printTextFont' | 'printTextHeight'
+                    | 'printTextSize' | 'printTextStyle' | 'rect' | 'rectangle'
+                    | 'reportTemplates' | 'right' | 'script' | 'scriptEditor'
+                    | 'scriptingLanguage' | 'scriptTextFont' | 'scriptTextSize'
+                    | 'scroll' | 'sharedHilite' | 'sharedText' | 'showLines'
+                    | 'showName' | 'showPict' | 'size' | 'stacksInUse' | 'style'
+                    | 'suspended' | 'textAlign' | 'textArrows' | 'textFont'
+                    | 'textHeight' | 'textSize' | 'textStyle' | 'titleWidth' | 'top'
+                    | 'topLeft' | 'traceDelay' | 'userLevel' | 'userModify'
+                    | 'variableWatcher' | 'version' | 'visible' | 'wideMargins'
+                    | 'width' | 'zoomed' ;
+                  (* FIXED: source reads "autoSelectautoTab" (missing '|') *)
+
+
+(* ===================== 4. OBJECTS, CONTAINERS, CHUNKS ===================== *)
+
+ordinal       ::= 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'sixth'
+                | 'seventh' | 'eighth' | 'ninth' | 'tenth' ;
+                  (* FIXED: source misspells 'eighth' as 'eigth' *)
+position      ::= 'next' | PREV | 'this' | 'first' | 'last' | 'any' | 'middle' | 'mid' ;
+partRef       ::= 'id' factor | ordinal | factor ;     (* NORMALIZED *)
+
+object        ::= 'me' | 'target' | button | field | card | bkgnd | stack
+                | 'HyperCard' ;
+button        ::= ( CARD | BKGND )? BUTTON partRef ;
+field         ::= ( CARD | BKGND )? FIELD partRef ;
+card          ::= CARD ( 'id' factor | position | ordinal | factor ) ( 'of' bkgnd )?
+                | 'recent' CARD
+                | 'this' CARD ;
+bkgnd         ::= BKGND ( 'id' factor | position | ordinal | factor )
+                | 'this' BKGND ;
+stack         ::= 'this'? 'stack' | 'stack' factor ;
+
+window        ::= 'the'? ( 'card' 'window' | 'tool' 'window' | 'pattern' 'window'
+                         | MSG 'window' | MSG 'box' | 'window' factor ) ;
+                  (* FIXED: window defined twice in the source; merged *)
+menu          ::= 'menu' factor ;
+menuItem      ::= 'menuItem' factor ;
+
+simpleContainer ::= IDENT | field | button | MSG | 'selection' | 'menu' factor | 'target' ;
+container     ::= chunk? simpleContainer ;
+                  (* NOTE: 'put x into char 2 of line 3 of fld 1' *)
+
+chunk         ::= ( chunkItem 'of' )+ ;
+chunkItem     ::= unit factor ( 'to' factor )?
+                | ( ordinal | 'last' | 'middle' | 'mid' | 'any' ) unit ;
+unit          ::= CHAR | WORD | ITEM | LINEKW ;
+
+(* ====================== 5. DATES, EFFECTS, ARGUMENTS ====================== *)
+
+dateFormat    ::= 'long' 'date' | 'short' 'date' | 'abbrev' 'date' | 'abbr' 'date'
+                | 'abbreviated' 'date' | 'date' | 'time' | 'long' 'time' | 'short' 'time'
+                | 'seconds' | 'dateItems' ;
+
+effect        ::= 'effect' effectName ( speed )? ( 'to' image )? ;
+effectName    ::= 'dissolve' | 'barn' 'door' ( 'open' | 'close' ) | 'checkerboard'
+                | 'iris' ( 'open' | 'close' ) | 'plain'
+                | 'scroll' direction | 'venetian' 'blinds' | 'wipe' direction
+                | 'zoom' ( 'open' | 'close' | 'in' | 'out' ) | 'push' direction
+                | 'shrink' 'to' ( 'top' | 'bottom' | 'center' )
+                | 'stretch' 'from' ( 'top' | 'bottom' | 'center' ) ;
+direction     ::= 'left' | 'right' | 'up' | 'down' ;
+speed         ::= 'very' 'fast' | 'fast' | 'slow' | 'very' 'slow' | 'slowly' | 'fast' ;
+image         ::= 'black' | 'white' | GRAY | 'inverse' | CARD ;
+
+(* ======================= 6. COMMANDS (messageSend) ======================== *)
+
+command       ::= addCmd | answerCmd | arrowKeyCmd | askCmd | 'beep' expr?
+                | chooseCmd | clickCmd | closeCmd | commandKeyCmd | controlKeyCmd
+                | convertCmd | createCmd | debugCmd | deleteCmd | dialCmd
+                | disableCmd | divideCmd | doMenuCmd | dragCmd | editCmd
+                | enableCmd | exportCmd | findCmd | flashCmd | functionKeyCmd
+                | getCmd | goCmd | helpCmd | hideCmd | importCmd | lockCmd
+                | markCmd | multiplyCmd | openCmd | playCmd | popCmd | printCmd
+                | pushCmd | putCmd | readCmd | resetCmd | saveCmd | selectCmd
+                | setCmd | showCmd | sortCmd | startCmd | stopCmd | subtractCmd
+                | typeCmd | unlockCmd | unmarkCmd | visualCmd | waitCmd | writeCmd ;
+
+addCmd        ::= 'add' expr 'to' container ;
+answerCmd     ::= 'answer' ( 'file' expr ( 'of' 'type' expr )?
+                           | 'program' expr ( 'of' 'type' expr )?
+                           | expr ( 'with' expr ( 'or' expr ( 'or' expr )? )? )? ) ;
+arrowKeyCmd   ::= 'arrowKey' direction ;
+askCmd        ::= 'ask' ( 'password' )? expr ( 'with' expr )?
+                | 'ask' 'file' expr ( 'with' expr )? ;
+chooseCmd     ::= 'choose' ( toolName 'tool' | 'tool' expr ) ;
+toolName      ::= 'browse' | BUTTON | FIELD | 'select' | 'lasso' | 'bucket' | 'brush'
+                | 'pencil' | 'eraser' | 'line' | 'spray' | 'rect' | 'rectangle'
+                | 'round' 'rect' | 'oval' | 'curve' | 'text' | REG POLY | POLY ;
+clickCmd      ::= 'click' 'at' expr ( 'with' expr ( ',' expr )* )? ;
+closeCmd      ::= 'close' ( 'file' expr | 'printing' | 'window' expr | 'application' expr
+                          | 'resource' 'file' expr ) ;
+commandKeyCmd ::= ( 'commandKey' | 'cmdKey' ) expr ;
+controlKeyCmd ::= 'controlKey' expr ;
+convertCmd    ::= 'convert' container? ( 'from' dateFormat ( 'and' dateFormat )? )?
+                  'to' dateFormat ( 'and' dateFormat )? ;
+createCmd     ::= 'create' ( 'stack' expr ( 'with' CARD expr )? | 'menu' expr ) ;
+debugCmd      ::= 'debug' ( 'checkpoint' | 'pause' ) ;
+deleteCmd     ::= 'delete' ( container | object | 'menuItem' expr 'from' menu | menu ) ;
+dialCmd       ::= 'dial' expr ( 'with' 'modem' expr? )? ;
+disableCmd    ::= 'disable' ( object | menuItem 'of' menu | menu ) ;
+divideCmd     ::= 'divide' container 'by' expr ;
+doMenuCmd     ::= 'doMenu' expr ( ',' expr )? ( 'without' 'dialog' )? ;
+dragCmd       ::= 'drag' 'from' expr 'to' expr ( 'with' expr ( ',' expr )* )? ;
+editCmd       ::= 'edit' 'script' 'of' object ;
+enableCmd     ::= 'enable' ( object | menuItem 'of' menu | menu ) ;
+exportCmd     ::= 'export' PICTURE? 'to' 'file' expr
+                | 'export' 'paint' 'to' 'file' expr ;
+findCmd       ::= 'find' ( 'whole' | 'word' | 'string' | 'chars' | 'characters' )?
+                  expr ( 'in' field )? ( 'of' 'marked' CARDS )? ;
+flashCmd      ::= 'flash' expr? ;
+functionKeyCmd ::= 'functionKey' expr ;
+getCmd        ::= 'get' expr ;
+goCmd         ::= 'go' 'to'? ( card | bkgnd | stack | 'recent' CARD | position CARD
+                             | 'next' | PREV | 'back' | 'forth' | 'home' | expr )
+                  ( 'of' bkgnd )? ( 'in' 'a' 'new' 'window' )? ( 'without' 'dialog' )? ;
+helpCmd       ::= 'help' ;
+hideCmd       ::= 'hide' ( object | 'menubar' | 'titlebar' | window | 'picture' 'of' CARD
+                         | 'picture' 'of' BKGND | 'picture' | 'groups' | MSG 'box'
+                         | 'card' 'window' | 'tool' 'window' | 'pattern' 'window' ) ;
+importCmd     ::= 'import' 'paint' 'from' 'file' expr ;
+lockCmd       ::= 'lock' ( 'screen' | 'messages' | 'recent' | 'error' 'dialogs' ) ;
+markCmd       ::= 'mark' ( CARD | CARDS | 'all' CARDS | 'by' 'finding' expr ( 'in' field )?
+                         | 'where' expr ) ;
+multiplyCmd   ::= 'multiply' container 'by' expr ;
+openCmd       ::= 'open' ( 'file' expr | 'printing' ( 'with' 'dialog' )?
+                         | 'report' 'printing' | expr ( 'with' expr )?
+                         | 'resource' 'file' expr ) ;
+playCmd       ::= 'play' ( 'stop' | expr ( 'tempo' expr )? expr? ) ;
+popCmd        ::= 'pop' CARD ( 'into' container )? ;
+printCmd      ::= 'print' ( CARD | CARDS | expr ( 'from' expr )? | object
+                          | 'all' CARDS | 'marked' CARDS | 'stack' | expr 'cards'
+                          | expr 'with' expr ) ;
+pushCmd       ::= 'push' ( CARD | card | bkgnd | stack ) ;
+putCmd        ::= 'put' expr ( ( 'into' | 'before' | 'after' ) container
+                             | 'into' MSG 'box' )? ;
+readCmd       ::= 'read' 'from' 'file' expr ( 'until' expr | 'for' expr ) ;
+resetCmd      ::= 'reset' ( 'paint' | 'menuBar' | 'printing' ) ;
+saveCmd       ::= 'save' stack 'as' expr ;
+selectCmd     ::= 'select' ( chunk? container | 'text' 'of' field | 'empty'
+                           | 'before' chunk? container | 'after' chunk? container
+                           | button | field | 'all' | expr ) ;
+setCmd        ::= 'set' ( 'the'? PROPERTY ( 'of' ( object | window | chunk field
+                                                  | menuItem 'of' menu ) )?
+                        | 'the'? THEFUNC ) 'to' propVal ;
+                  (* NOTE: source's propVal alternatives are folded into propVal below *)
+showCmd       ::= 'show' ( object | 'menubar' | 'titlebar' | window | CARDS expr?
+                         | 'all' CARDS | 'marked' CARDS | 'groups' | 'picture'
+                         | PICTURE 'of' ( CARD | BKGND ) | CARD PICTURE
+                         | MSG 'box' | 'card' 'window' | 'tool' 'window'
+                         | 'pattern' 'window' ) ( 'at' expr )? ;
+sortCmd       ::= 'sort' ( 'the'? 'marked' CARDS | CARDS | 'cards' 'of' bkgnd | container )?
+                  ( 'ascending' | 'descending' )? ( 'text' | 'numeric' | 'international'
+                                                    | 'dateTime' )?
+                  ( 'by' expr )? ;
+startCmd      ::= 'start' 'using' stack ;
+stopCmd       ::= 'stop' 'using' stack ;
+subtractCmd   ::= 'subtract' expr 'from' container ;
+typeCmd       ::= 'type' expr ( 'with' expr ( ',' expr )* )? ;
+unlockCmd     ::= 'unlock' ( 'screen' ( 'with' effect )? | 'messages' | 'recent'
+                           | 'error' 'dialogs' ) ;
+unmarkCmd     ::= 'unmark' ( CARD | CARDS | 'all' CARDS | 'by' 'finding' expr
+                           | 'where' expr ) ;
+visualCmd     ::= 'visual' effect ;
+waitCmd       ::= 'wait' ( 'until' logical | 'while' logical | expr ( 'ticks' | 'seconds' | 'sec' )? ) ;
+writeCmd      ::= 'write' expr 'to' 'file' expr ;
+
+propVal       ::= expr
+                | expr ',' expr ( ',' expr ( ',' expr )? )?   (* points and rects *)
+                | 'true' | 'false'
+                | 'empty'
+                | 'plain' | 'bold' | 'italic' | 'underline' | 'outline' | 'shadow'
+                | 'condense' | 'extend' | 'group'
+                | 'left' | 'right' | 'center'
+                | 'transparent' | 'opaque' | 'rectangle' | 'roundRect' | 'shadow'
+                | 'checkBox' | 'radioButton' | 'scrolling' | 'standard' | 'default'
+                | 'oval' | 'popup' | 'rect' ;
+                  (* NORMALIZED: the style, textAlign and textStyle rules are defined
+                     twice in the source; merged here. Which values are legal depends
+                     on the property, and is a semantic check, not a grammar one *)
