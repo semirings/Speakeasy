@@ -1,0 +1,34 @@
+(* =============================================================================
+   Speakeasy Blender extension -- EBNF   (DRAFT 1, STARTER)
+
+   Adds to base.ebnf only. Compiles to an operation tree that a backend executes
+   in Blender or writes out as a Python script (undecided; see design.md).
+
+   SCOPE (first version): create, move, rotate, scale, delete, select, render,
+   and the location / rotation / scale properties. Materials, modifiers, grease
+   pencil and camera framing are later versions. Everything here is a proposal
+   for review.
+   ============================================================================ *)
+
+object     += blenderObject ;
+command    += createShapeCmd | moveCmd | rotateCmd | scaleCmd | renderCmd ;
+PROPERTY   += 'location' | 'rotation' | 'scale' | 'dimensions' ;
+
+(* object "Eye"    object id 3 *)
+blenderObject ::= 'object' ( 'id' factor | factor ) ;
+
+(* create cube named "Eye" at 0,0,0 *)
+createShapeCmd ::= 'create' shape ( 'named' expr )? ( 'at' point )? ;
+shape          ::= 'cube' | 'sphere' | 'plane' | 'cylinder' | 'cone' | 'camera' | 'light' ;
+point          ::= expr ',' expr ',' expr ;
+
+(* move object "Eye" to 0,0,1     move object "Eye" by 0,0,1 *)
+moveCmd        ::= 'move' blenderObject ( 'to' | 'by' ) point ;
+rotateCmd      ::= 'rotate' blenderObject ( 'to' | 'by' ) point ;
+scaleCmd       ::= 'scale' blenderObject ( 'to' | 'by' ) ( point | expr ) ;
+
+(* render to "frame.png" *)
+renderCmd      ::= 'render' ( 'to' expr )? ;
+
+(* Base's `delete` already accepts any `object`, so `delete object "Eye"` needs
+   no rule here. `set the location of object "Eye" to ...` is base's `set`. *)

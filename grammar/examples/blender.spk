@@ -1,0 +1,13 @@
+-- Speakeasy Blender extension: example scripts (base + blender.ebnf)
+
+on makeEye
+  create sphere named "Eye" at 0,0,0
+  move object "Eye" to 0,0,1.5
+  scale object "Eye" to 0.2
+  rotate object "Eye" by 0,0,90
+  render to "eye.png"
+end makeEye
+
+on tidy
+  delete object "Eye"
+end tidy

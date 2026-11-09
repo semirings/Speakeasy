@@ -1,0 +1,37 @@
+(* =============================================================================
+   Speakeasy D4M extension -- EBNF   (DRAFT 1, STARTER)
+
+   Adds to base.ebnf only. Every rule here is either `X += ...` on an extension
+   point of base.ebnf, or a new rule used only by those additions.
+   Compiles to an operation tree for D4M.jl (never to Julia text). The Julia
+   names are the harmonized ones in D4M.jl/doc/d4m-name-map.md.
+
+   SCOPE (first version): load/save an associative array, select by key tests,
+   sum, top-N, show. Weight-space commands, masking and ontology checks are
+   later versions. Everything here is a proposal for review.
+   ============================================================================ *)
+
+command   += loadAssocCmd | saveAssocCmd | selectAssocCmd ;
+THEFUNC   += 'rows' | 'cols' ;
+PROPERTY  += 'nnz' ;
+
+(* load assoc from "recipes.parquet" into A         -- loadParquet / loadAA *)
+loadAssocCmd   ::= 'load' 'assoc' 'from' expr 'into' container ;
+
+(* save assoc A to "out.parquet"                    -- saveParquet / saveAA *)
+saveAssocCmd   ::= 'save' 'assoc' container 'to' expr ;
+
+(* select from A where row startsWith "phys:L12" and col is "sem:code" into B *)
+selectAssocCmd ::= 'select' 'from' container 'where' keyTest ( 'and' keyTest )*
+                   'into' container ;
+keyTest        ::= keyAxis keyOp concatExpr ;
+                   (* concatExpr, not expr: so the 'and' joining two tests is not
+                      swallowed by an expression *)
+keyAxis        ::= 'row' | 'col' | 'value' ;
+keyOp          ::= 'startsWith' | 'endsWith' | 'contains' | 'is'
+                 | 'between' concatExpr 'and' ;
+                   (* maps to StartsWith / EndsWith / Contains / Between selectors *)
+
+(* the sum of A by row     the top 10 of A     the rows of A *)
+function  += 'the' 'sum' 'of' container 'by' ( 'row' | 'col' )
+           | 'the' 'top' expr 'of' container ;

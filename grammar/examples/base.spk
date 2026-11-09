@@ -1,0 +1,75 @@
+-- Speakeasy base: example scripts. These are the first parser tests.
+-- Every script here must be accepted by grammar/base.ebnf.
+-- They are deliberately neutral: cards and fields, nothing about recipes.
+-- Recipe scripts live in Whetstone/examples/recipes.spk.
+
+-- A button that jumps to a card
+on mouseUp
+  go to card "Notes"
+end mouseUp
+
+-- Make a new card and set a field
+on newNote
+  create card "Untitled"
+  put "draft" into field "state"
+end newNote
+
+-- Refuse to continue while a field is empty
+on finish
+  if field "body" is empty then
+    answer "Write something first." with "OK"
+    exit finish
+  end if
+  put "done" into field "state"
+  save
+end finish
+
+-- Search the cards
+on lookup
+  ask "Search for what?"
+  find it in field "body"
+end lookup
+
+-- List the first line of every card in the message box
+on listCards
+  put empty into out
+  repeat with i = 1 to the number of cards
+    put line 1 of field "body" of card i & return after out
+  end repeat
+  put out into msg
+end listCards
+
+-- Search into a substack and walk the results
+on search
+  ask "Find what?"
+  find cards where field "body" contains it into stack "hits"
+  go to stack "hits"
+  go to first card
+end search
+
+on nextHit
+  go to next card
+end nextHit
+
+-- Remove a card from the results only (delete would remove the card itself)
+on dropHit
+  drop this card
+end dropHit
+
+-- Count the results
+on howMany
+  answer "Found " & the number of cards of stack "hits"
+end howMany
+
+-- A function with parameters
+function clamp n, lo, hi
+  if n < lo then return lo
+  if n > hi then return hi
+  return n
+end clamp
+
+-- Passing a message up the path
+on mouseDown
+  beep
+  pass mouseDown
+end mouseDown

@@ -1,0 +1,225 @@
+(* =============================================================================
+   Speakeasy base language -- EBNF   (DRAFT 2)
+
+   Derived from grammar/hypertalk-2.2.ebnf (DeVoto's HyperTalk 2.2 BNF) and cut
+   down to what Whetstone needs. Objects are the ones in Whetstone/doc/design.md:
+   Whetstone (app), stack, card, field, button.
+
+   NOTATION  (as in hypertalk-2.2.ebnf, plus one addition)
+     rule ::= body ;          defines a rule
+     rule += body ;           EXTENSION: adds alternatives to a rule defined with ::=
+                              (used only by d4m.ebnf and blender.ebnf)
+     'text'                   terminal; keywords are case-insensitive and RESERVED
+     ( )  |  ?  *  +          grouping, alternation, optional, repeat
+     [a-z]  [^"\r\n]          character class (lexical rules only)
+     lower-case rules         parser rules
+     UPPER-CASE rules         lexical rules and synonym classes
+
+   EXTENSION POINTS: command, object, function, constant, THEFUNC, PROPERTY.
+   An extension may add alternatives to these and define new rules. It may not
+   change anything else. Extensions never import each other.
+
+   DECISIONS (all from this design pass; see NOTES.md)
+     D1  Strings are quoted only. HyperTalk's unquoted tokens are gone.
+     D2  Keywords are reserved. A variable cannot be called 'card' or 'put'.
+     D3  One spelling per construct where the 2.2 grammar allowed several,
+         except the synonyms listed in section 1.
+     D4  No backgrounds, menus, painting, sound, printing, networking, files.
+   ============================================================================ *)
+
+
+(* ============================ 1. LEXICAL ================================== *)
+
+NL            ::= '\r\n' | '\r' | '\n' ;      (* ends a statement *)
+COMMENT       ::= '--' [^\r\n]* ;             (* skipped by the lexer *)
+CONTINUATION  ::= '¬' NL ;                    (* joins two lines *)
+
+STRING        ::= '"' [^"\r\n]* '"' ;         (* D1: the only way to write text *)
+NUMBER        ::= [0-9]+ ( '.' [0-9]* )? ( ( 'e' | 'E' ) ( '+' | '-' )? [0-9]+ )?
+                | '.' [0-9]+ ;
+IDENT         ::= [A-Za-z_] [A-Za-z0-9_]* ;   (* never a reserved word (D2) *)
+
+CARD          ::= 'card' | 'cd' ;
+CARDS         ::= 'cards' | 'cds' ;
+FIELD         ::= 'field' | 'fld' ;
+FIELDS        ::= 'fields' | 'flds' ;
+BUTTON        ::= 'button' | 'btn' ;
+BUTTONS       ::= 'buttons' | 'btns' ;
+CHAR          ::= 'char' | 'character' ;
+CHARS         ::= 'chars' | 'characters' ;
+WORD          ::= 'word' ;
+WORDS         ::= 'words' ;
+ITEM          ::= 'item' ;
+ITEMS         ::= 'items' ;
+LINEKW        ::= 'line' ;
+LINES         ::= 'lines' ;
+MSG           ::= 'msg' | 'message' ;
+PREV          ::= 'prev' | 'previous' ;
+
+
+(* ============================ 2. SCRIPTS ================================== *)
+
+script        ::= ( NL | handler )* ;
+
+handler       ::= 'on' messageKey paramList? NL stmntList 'end' messageKey NL
+                | 'function' IDENT paramList? NL stmntList 'end' IDENT NL ;
+paramList     ::= IDENT ( ',' IDENT )* ;
+messageKey    ::= IDENT ;
+
+stmntList     ::= stmnt+ ;
+stmnt         ::= ( keywordStmnt | command | messageSend )? NL ;
+
+messageSend   ::= IDENT ( expr ( ',' expr )* )? ;   (* call a handler by name *)
+
+keywordStmnt  ::= 'do' expr
+                | 'exit' 'repeat'
+                | 'exit' messageKey
+                | 'global' identList
+                | 'next' 'repeat'
+                | 'pass' messageKey
+                | 'return' expr
+                | 'send' expr 'to' object
+                | ifBlock
+                | repeatBlock ;
+identList     ::= IDENT ( ',' IDENT )* ;
+
+ifBlock       ::= 'if' expr NL? 'then' ( singleThen | NL multiThen ) ;
+singleThen    ::= stmnt ( NL? elseBlock )? ;
+multiThen     ::= stmntList ( 'end' 'if' | elseBlock ) ;
+elseBlock     ::= 'else' ( stmnt | NL stmntList 'end' 'if' ) ;
+
+repeatBlock   ::= 'repeat' ( 'forever' | 'until' expr | 'while' expr
+                           | 'for'? expr 'times'?
+                           | 'with' IDENT '=' expr 'down'? 'to' expr )?
+                  NL stmntList 'end' 'repeat' ;
+
+
+(* =========================== 3. EXPRESSIONS =============================== *)
+
+(* Weakly typed: type errors are run-time errors. Layered by precedence,
+   lowest first. UNVERIFIED against HyperCard (see NOTES.md). *)
+expr              ::= orExpr ;
+orExpr            ::= andExpr ( 'or' andExpr )* ;
+andExpr           ::= equalityExpr ( 'and' equalityExpr )* ;
+equalityExpr      ::= relationalExpr ( ( '=' | '<>' | '≠' | 'is' 'not'? ) relationalExpr )* ;
+relationalExpr    ::= concatExpr ( relationalOp concatExpr )* ;
+relationalOp      ::= '<' | '>' | '<=' | '>=' | '≤' | '≥' | 'contains'
+                    | 'is' 'not'? 'in'
+                    | 'is' 'not'? ( 'a' | 'an' )
+                    | 'is' 'not'? ( 'newer' | 'older' ) 'than' ;
+                  (* NOTE: 'is [not] in|a|an|newer|older' share the word 'is' with
+                     equalityExpr; the parser resolves by looking at the next word.
+                     newer/older compare VERSION strings as dotted numbers, so
+                     "5.10" is newer than "5.2". Both sides must look like versions. *)
+concatExpr        ::= additiveExpr ( ( '&' | '&&' ) additiveExpr )* ;
+additiveExpr      ::= multiplicativeExpr ( ( '+' | '-' ) multiplicativeExpr )* ;
+multiplicativeExpr ::= powerExpr ( ( '*' | '/' | 'div' | 'mod' ) powerExpr )* ;
+powerExpr         ::= unaryExpr ( '^' unaryExpr )* ;
+unaryExpr         ::= '-' unaryExpr
+                    | 'not' unaryExpr
+                    | 'there' 'is' ( 'a' | 'an' | 'no' ) object
+                    | primary ;
+
+primary           ::= chunk factor | factor ;
+
+factor            ::= '(' expr ')'
+                    | STRING
+                    | NUMBER
+                    | constant
+                    | function
+                    | propertyRef
+                    | simpleContainer ;
+
+constant          ::= 'empty' | 'true' | 'false' | 'return' | 'quote' | 'space'
+                    | 'tab' | 'lineFeed' | 'pi' | 'up' | 'down' ;        (* extension point *)
+
+propertyRef       ::= 'the'? PROPERTY 'of' ( object | chunk field ) ;
+
+function          ::= 'the' adjective? THEFUNC
+                    | 'the'? 'number' 'of' numberArg
+                    | 'the'? THEFUNC 'of' factor
+                    | IDENT '(' ( expr ( ',' expr )* )? ')'
+                    | THEFUNC '(' ( expr ( ',' expr )* )? ')' ;           (* extension point *)
+adjective         ::= 'long' | 'short' | 'abbrev' ;
+
+numberArg         ::= CARDS ( 'of' stack )?
+                    | ( FIELDS | BUTTONS ) ( 'of' card )?
+                    | ( CHARS | WORDS | ITEMS | LINES ) 'in' factor ;
+
+THEFUNC           ::= 'abs' | 'average' | 'date' | 'length' | 'max' | 'min'
+                    | 'number' | 'offset' | 'param' | 'paramCount' | 'params'
+                    | 'random' | 'result' | 'round' | 'seconds' | 'sqrt' | 'sum'
+                    | 'target' | 'ticks' | 'time' | 'trunc' | 'value' ;   (* extension point *)
+
+PROPERTY          ::= 'id' | 'name' | 'script' | 'text' | 'visible' | 'number'
+                    | 'score' | 'itemDelimiter' ;                                    (* extension point *)
+
+
+(* ============================ 4. OBJECTS ================================== *)
+
+object            ::= 'me' | 'target' | 'Whetstone' | button | field | card | stack ;
+                  (* extension point *)
+
+ordinal           ::= 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'sixth'
+                    | 'seventh' | 'eighth' | 'ninth' | 'tenth' ;
+position          ::= 'next' | PREV | 'this' | 'last' | 'any' ;
+partRef           ::= 'id' factor | ordinal | factor ;
+
+button            ::= BUTTON partRef ( 'of' card )? ;
+field             ::= FIELD partRef ( 'of' card )? ;
+card              ::= ( CARD ( 'id' factor | factor ) | ( position | ordinal ) CARD )
+                      ( 'of' stack )? ;
+                  (* card "Notes"   card 3   card id 7   next card   first card of stack "hits"
+                     'of stack' names a substack; without it, the current stack. *)
+stack             ::= 'this'? 'stack' | 'stack' factor ;
+
+simpleContainer   ::= IDENT | field | MSG | 'selection' ;
+container         ::= chunk? simpleContainer ;
+
+chunk             ::= ( chunkItem 'of' )+ ;
+chunkItem         ::= unit factor ( 'to' factor )?
+                    | ( ordinal | 'last' | 'middle' | 'any' ) unit ;
+unit              ::= CHAR | WORD | ITEM | LINEKW ;
+
+
+(* ============================ 5. COMMANDS ================================= *)
+
+command           ::= addCmd | answerCmd | askCmd | beepCmd | createCmd | deleteCmd
+                    | divideCmd | dropCmd | findCmd | getCmd | goCmd | hideCmd | multiplyCmd
+                    | putCmd | saveCmd | setCmd | showCmd | sortCmd | subtractCmd
+                    | waitCmd ;                                             (* extension point *)
+
+addCmd            ::= 'add' expr 'to' container ;
+subtractCmd       ::= 'subtract' expr 'from' container ;
+multiplyCmd       ::= 'multiply' container 'by' expr ;
+divideCmd         ::= 'divide' container 'by' expr ;
+
+getCmd            ::= 'get' expr ;
+putCmd            ::= 'put' expr ( ( 'into' | 'before' | 'after' ) container )? ;
+setCmd            ::= 'set' 'the'? PROPERTY 'of' ( object | chunk field ) 'to' expr ;
+
+goCmd             ::= 'go' 'to'? ( card | stack ) ;
+
+(* SUBSTACKS. `find cards where` makes a substack: an ordered set of references to
+   cards of the current stack, with a cursor, addressed as a stack by name. `where`
+   takes an ordinary expression, evaluated once per candidate card with that card as
+   `this card`. Without `into`, the substack is called "found". `go to stack "hits"`
+   makes it current; go next/previous/first/last then move the cursor. *)
+findCmd           ::= 'find' CARDS 'where' expr ( 'into' stack )?
+                    | 'find' expr ( 'in' field )? ;
+dropCmd           ::= 'drop' card ;
+                  (* removes a card from a substack only; `delete` removes the card itself *)
+sortCmd           ::= 'sort' CARDS? ( 'ascending' | 'descending' )?
+                      ( 'text' | 'numeric' )? 'by' expr ;
+
+createCmd         ::= 'create' ( CARD | BUTTON | FIELD ) expr? ;
+deleteCmd         ::= 'delete' ( object | container ) ;
+saveCmd           ::= 'save' CARD? ;
+
+showCmd           ::= 'show' ( object | MSG 'box' ) ;
+hideCmd           ::= 'hide' ( object | MSG 'box' ) ;
+
+answerCmd         ::= 'answer' expr ( 'with' expr ( 'or' expr ( 'or' expr )? )? )? ;
+askCmd            ::= 'ask' expr ( 'with' expr )? ;
+beepCmd           ::= 'beep' expr? ;
+waitCmd           ::= 'wait' ( 'until' expr | 'while' expr | expr ( 'ticks' | 'seconds' )? ) ;

@@ -1,0 +1,13 @@
+-- Speakeasy D4M extension: example scripts (base + d4m.ebnf)
+
+on bySymptom
+  load assoc from "recipes.parquet" into A
+  select from A where row startsWith "symptom:" and col is "camera" into B
+  put the top 10 of B into msg
+end bySymptom
+
+on counts
+  load assoc from "recipes.parquet" into A
+  put the sum of A by col into totals
+  save assoc totals to "totals.parquet"
+end counts
